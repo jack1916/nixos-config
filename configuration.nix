@@ -71,7 +71,6 @@
       "networkmanager"
       "docker"
     ]; # Enable ‘sudo’ for the user.
-    initialPassword = "password123";
   };
 
   # programs.firefox.enable = true;
