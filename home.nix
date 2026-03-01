@@ -1,13 +1,8 @@
 { config, pkgs, ... }:
 
-let
-  secrets = import ./secrets.nix;
-in
 {
   programs.git = {
     enable = true;
-    userName = secrets.userName;
-    userEmail = secrets.email;
   };
   home.username = "jack";
   home.homeDirectory = "/home/jack";
