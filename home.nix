@@ -1,6 +1,11 @@
-{ config, pkgs, ... }:
+{ config, pkgs, inputs, ... }:
 
 {
+  imports = [
+    inputs.kickstart-nixvim.homeManagerModules.default
+  ];
+  programs.nixvim.enable = true;
+
   programs.git = {
     enable = true;
   };
@@ -9,7 +14,6 @@
   home.stateVersion = "25.05";
 
   home.packages = with pkgs;[
-  neovim
   ripgrep
   fd
 

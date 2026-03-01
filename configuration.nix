@@ -2,13 +2,18 @@
 # your system. Help is available in the configuration.nix(5) man page, on
 # https://search.nixos.org/options and in the NixOS manual (`nixos-help`).
 
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 {
-  imports =
-    [ # Include the results of the hardware scan.
-      ./hardware-configuration.nix
-    ];
+  imports = [
+    # Include the results of the hardware scan.
+    ./hardware-configuration.nix
+  ];
 
   nixpkgs.config.allowUnfree = true;
   # Use the systemd-boot EFI boot loader.
@@ -40,9 +45,6 @@
   # Enable the X11 windowing system.
   # services.xserver.enable = true;
 
-
-  
-
   # Configure keymap in X11
   # services.xserver.xkb.layout = "us";
   # services.xserver.xkb.options = "eurosign:e,caps:escape";
@@ -64,7 +66,11 @@
   # Define a user account. Don't forget to set a password with ‘passwd’.
   users.users.jack = {
     isNormalUser = true;
-    extraGroups = [ "wheel" "networkmanager" "docker" ]; # Enable ‘sudo’ for the user.
+    extraGroups = [
+      "wheel"
+      "networkmanager"
+      "docker"
+    ]; # Enable ‘sudo’ for the user.
     initialPassword = "password123";
   };
 
@@ -95,8 +101,8 @@
     enable = true;
     settings = {
       PasswordAuthentication = false;
+    };
   };
-};
 
   # Open ports in the firewall.
   # networking.firewall.allowedTCPPorts = [ ... ];
@@ -129,6 +135,25 @@
   system.stateVersion = "25.11"; # Did you read the comment?
 
   nix.settings = {
-    experimental-features = [ "nix-command" "flakes" ];
+    experimental-features = [
+      "nix-command"
+      "flakes"
+    ];
+  };
+  services.power-profiles-daemon.enable = true;
+
+  system.autoUpgrade = {
+    enable = true;
+    flake = "/home/jack/nixos-config/";
+    dates = "03:00";
+    rebootWindow = {
+      lower = "03:00";
+      upper = "05:00";
+    };
+  };
+  nix.gc = {
+    automatic = true;
+    dates = "weekly";
+    options = "--delete-older-than 30d";
   };
 }
