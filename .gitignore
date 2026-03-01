@@ -1,1 +1,12 @@
 secrets.nix
+*.key
+*.pem
+secrets.json
+.env
+
+result
+result-*
+
+.DS_Store
+.direnv
+
