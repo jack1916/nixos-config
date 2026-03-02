@@ -1,0 +1,11 @@
+name: "Nix CI"
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v25
+      - name: Build System Configuration
+        run: nix build .#nixosConfigurations.homeserver.config.system.build.toplevel

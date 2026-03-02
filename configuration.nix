@@ -64,6 +64,25 @@
   # Enable touchpad support (enabled default in most desktopManager).
   # services.libinput.enable = true;
 
+  services.tailscale = {
+    enable = true;
+    useRoutingFeatures = "server";
+
+  };
+
+  services.adguardhome = {
+    enable = true;
+    openFirewall = true;
+    settings = {
+      http.address = "0.0.0.0:3000";
+      dns = {
+        upstream_dns = [
+          "1.1.1.1"
+          "8.8.8.8"
+        ];
+      };
+    };
+  };
   # Define a user account. Don't forget to set a password with ‘passwd’.
   users.users.jack = {
     isNormalUser = true;
@@ -110,7 +129,7 @@
   # networking.firewall.allowedUDPPorts = [ ... ];
   # Or disable the firewall altogether.
   # networking.firewall.enable = false;
-
+  networking.firewall.trustedInterfaces = [ "tailscale0" ];
   # Copy the NixOS configuration file and link it from the resulting system
   # (/run/current-system/configuration.nix). This is useful in case you
   # accidentally delete configuration.nix.
@@ -142,6 +161,7 @@
     ];
   };
   services.power-profiles-daemon.enable = true;
+  powerManagement.powertop.enable = true;
 
   system.autoUpgrade = {
     enable = true;
