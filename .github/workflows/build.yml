@@ -13,4 +13,4 @@ jobs:
       - name: Check flake
         run: nix flake check --no-build
       - name: Evaluate system configuration
-        run: nix nix eval .#nixosConfigurations.homeserver.config.system.build.toplevel.drvPath
+        run: nix eval .#nixosConfigurations.homeserver.config.system.build.toplevel.drvPath

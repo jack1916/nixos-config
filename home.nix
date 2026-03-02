@@ -66,5 +66,10 @@
   };
   programs.bash = {
     enable = true;
+    shellAliases = {
+      nix-switch = "sudo nixos-rebuild switch --flake .#homeserver";
+      nix-test = "nix build .#nixosConfigurations.homeserver.config.system.build.toplevel --dry-run";
+      conf = "cd ~/nixos-config/";
+    };
   };
 }
