@@ -6,8 +6,6 @@
 
     home-manager.url = "github:nix-community/home-manager/release-25.11";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
-    nixvim.url = "github:nix-community/nixvim";
-    kickstart-nixvim.url = "github:JMartJonesy/kickstart.nixvim";
   };
 
   outputs =
@@ -15,7 +13,6 @@
       self,
       nixpkgs,
       home-manager,
-      nixvim,
       ...
     }@inputs:
     {
