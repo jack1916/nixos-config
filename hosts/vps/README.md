@@ -18,7 +18,7 @@ Caddy, so **no IP forwarding / NAT** is configured on either side.
 
 | File | Purpose |
 |---|---|
-| `disko.nix` | `/dev/sda`: GPT → 512M vfat `/boot` (EFI00) + ext4 `/` |
+| `hardware-configuration.nix` | Root/ESP filesystems by UUID (inherited Hetzner layout) |
 | `wireguard.nix` | `wg0` on `10.100.0.1/24`, UDP 51820, single peer `10.100.0.2` |
 | `caddy.nix` | ACME TLS for `plex.9485432.xyz`, reverse proxy to `:32400` |
 | `default.nix` | Base system, SSH, firewall, sops, upgrades |
@@ -105,134 +105,130 @@ Delegate the private keys at runtime:
 These paths are produced by `sops-nix` from the `sops.secrets` definitions;
 verify with `sudo cat /run/secrets/wireguard/...` after the first switch.
 
-## 3. Add your SSH key before installing
+## 3. Confirm the SSH keys in the config
 
-`hosts/vps/default.nix` ships with an empty `authorizedKeys` list and
-password auth disabled. Add your public key **now**, otherwise you cannot
-log in after `nixos-anywhere` reboots:
+`hosts/vps/default.nix` already lists the laptop key for **both `root` and
+`jack`**, and disables password auth. `nixos-anywhere` and the install
+steps connect as `root`, so the root entry is the one that matters for
+recovery.
+
+If you change machines, update both lists before deploying — otherwise the
+switch will lock you out:
 
 ```nix
-openssh.authorizedKeys.keys = [ "ssh-ed25519 AAAA... you@laptop" ];
+users.users.root.openssh.authorizedKeys.keys = [ "ssh-ed25519 AAAA... you@laptop" ];
+users.users.jack.openssh.authorizedKeys.keys = [ "ssh-ed25519 AAAA... you@laptop" ];
 ```
+
+`nixos-infect` separately scrapes `/root/.ssh/authorized_keys` from the
+Ubuntu image, so make sure your key is selected when rebuilding in 4a.
 
 ## 4. Install the VPS
 
-### Why nixos-anywhere does NOT work on Hetzner Cloud
+### Why not nixos-anywhere
 
-These are hard constraints on Hetzner x86_64 cloud VMs, verified against a
-real instance:
+Two hard constraints on Hetzner x86_64 cloud VMs, both verified on a real
+instance:
 
-1. **Legacy BIOS boot.** `kexec` fails with `PEFILE: Unsigned PE binary` and
-   there is no option to make it work. This is not transient.
-2. **You cannot skip kexec.** Running `--phases disko,install,reboot` while
-   the target disk is the *running root* makes disko rewrite the GPT and zero
-   the MBR, but the kernel refuses to reload the partition table of an
-   in-use disk. The result is **a machine that will not boot**.
+1. **Legacy BIOS boot.** `kexec` fails with `PEFILE: Unsigned PE binary`
+   and there is no way to enable it. Not transient.
+2. **Skipping kexec is destructive.** `--phases disko,install,reboot`
+   (there is no `--no-kexec` flag) repartitions the disk that is currently
+   mounted as `/`. The kernel will not reload the partition table of an
+   in-use disk, so disko rewrites the GPT and zeroes the MBR without being
+   able to create filesystems: the machine is left **unbootable**. This
+   happened. Recover with the Hetzner console's Rebuild.
 
-  There is no `--no-kexec` flag in current nixos-anywhere; use `--phases`.
+`nixos-infect` avoids both: it converts the running Ubuntu **in place**, so
+no kexec, no ISO, no partitioning.
 
-**Therefore: boot a NixOS minimal ISO**, which runs entirely in RAM, so
-`/dev/sda` is free and disko works normally.
+### Trade-off
 
-### 4a. Boot the installer ISO
+Partitioning is no longer declared in this repo. The machine keeps
+Hetzner's layout (`sda1` root, `sda14` bios_grub, `sda15` ESP), and
+`hardware-configuration.nix` records those UUIDs. **Recreating or
+rebuilding the server changes the UUIDs** — update that file or the system
+will not boot.
 
-1. NixOS console → your server → **Power → Shut down** (ISO upload requires
-   the server to be off).
-2. **ISO Images → Mount ISO** → select NixOS (Hetzner often has one ready;
-   any recent version works, the installed system comes from this flake's
-   pinned nixpkgs, not from the ISO).
-   Otherwise download and verify, then upload:
+### 4a. Rebuild the server as Ubuntu
 
-   ```bash
-   curl -LO https://channels.nixos.org/nixos-25.11/latest-nixos-minimal-x86_64-linux.iso
-   curl -LO https://channels.nixos.org/nixos-25.11/latest-nixos-minimal-x86_64-linux.iso.sha256
-   sha256sum -c latest-nixos-minimal-x86_64-linux.iso.sha256
-   ```
+Hetzner console → your server → **Rebuild** → Ubuntu → confirm. Select your
+SSH key so root login works. A few minutes.
 
-3. **Power on**, open the **web console (VNC)** and pick the installer entry.
-
-> The installer has **no root password and no authorized keys**. Log in as
-> `root` at the **console** (press Enter at the password prompt). SSH is not
-> usable until step 4b is done.
-
-### 4b. Networking (Hetzner needs manual config)
-
-Hetzner assigns a `/32` address with a gateway outside that subnet, so DHCP
-will not give you a working default route in the installer.
+Confirm the result:
 
 ```bash
-ip -br link                 # find the interface name, e.g. ens3
-ip link set ens3 up
-ip addr add 2.31.95.62/32 dev ens3
-ip route add 172.31.1.1 dev ens3          # 'onlink' - must precede default
-ip route add default via 172.31.1.1 dev ens3
-echo "nameserver 1.1.1.1" > /etc/resolv.conf
-
-curl -sI https://cache.nixos.org | head -1   # expect HTTP/2 200
+ssh root@2.31.95.62 'lsblk -f /dev/sda; [ -d /sys/firmware/efi ] && echo UEFI || echo BIOS'
 ```
 
-Now enable SSH so you can stop using VNC:
+Expect `sda1` ext4 on `/` and **BIOS**. Note the UUIDs and check they match
+`hosts/vps/hardware-configuration.nix`; update it if they differ.
+
+### 4b. Run nixos-infect
 
 ```bash
-mkdir -p /root/.ssh
-cat > /root/.ssh/authorized_keys <<'EOF'
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE+aHyrXiBrZZaJ6kQTwBq8buMW4CGB0YaaLgO0OsxSc jack@arch-laptop-jack
-EOF
-chmod 700 /root/.ssh; chmod 600 /root/.ssh/authorized_keys
-systemctl start sshd
-passwd root    # backup access
+ssh root@2.31.95.62
+curl -sfL https://raw.githubusercontent.com/elitak/nixos-infect/master/nixos-infect \
+  -o /tmp/nixos-infect
+NO_REBOOT=1 bash /tmp/nixos-infect      # inspect before rebooting
 ```
 
-### 4c. Partition and install
+`NO_REBOOT=1` lets you look at the generated config first. It writes:
 
-Confirm you are in RAM and `/dev/sda` is free before touching it:
+- `/etc/nixos/configuration.nix`
+- `/etc/nixos/hardware-configuration.nix`
+- `/etc/nixos/networking.nix` — the Hetzner `/32` address + onlink gateway
 
-```bash
-lsblk -f        # /dev/sda must have NO mountpoints
-```
-
-```bash
-parted /dev/sda --script mklabel gpt
-parted /dev/sda --script mkpart boot 1MiB 2MiB
-parted /dev/sda --script set 1 bios_grub on
-parted /dev/sda --script mkpart ESP fat32 2MiB 514MiB
-parted /dev/sda --script set 2 esp on
-parted /dev/sda --script mkpart root ext4 514MiB 100%
-
-mkfs.vfat -F32 -n ESP /dev/sda2
-mkfs.ext4 -L nixos /dev/sda3
-
-mount /dev/sda3 /mnt
-mkdir -p /mnt/boot
-mount /dev/sda2 /mnt/boot
-```
-
-Then install this flake. The repo is **private**, so from the installer either
-make it public temporarily or copy it over. Easiest reliable route is to run
-`nixos-generate-config` and install a stock system, then switch to the flake
-over SSH (step 4d):
+Check `networking.nix` contains your real address and gateway, then:
 
 ```bash
-nixos-generate-config --root /mnt
-# add to /mnt/etc/nixos/configuration.nix:
-#   services.openssh.enable = true;
-#   users.users.root.openssh.authorizedKeys.keys = [ "<your key>" ];
-#   boot.loader.grub.enable = true;
-#   boot.loader.grub.device = "/dev/sda";
-#   networking.useDHCP = true;
-nixos-install      # set a root password when prompted
 reboot
+```
+
+### 4c. Verify NixOS booted
+
+```bash
+ssh -o StrictHostKeyChecking=no root@2.31.95.62 \
+  '. /etc/os-release; echo $PRETTY_NAME; ls /etc/nixos/'
 ```
 
 ### 4d. Switch to this flake
 
+The generated `/etc/nixos/networking.nix` must stay in the import chain,
+because this flake deliberately sets `networking.useDHCP = false` (see the
+comment in `default.nix`). Copy it into the flake, or import it from
+`default.nix`.
+
 ```bash
-scp -r ~/Projects/nixos-config root@2.31.95.62:/etc/nixos/
+# From your laptop: send the flake
+rsync -avz --exclude '.git' --exclude '*.iso' \
+  ~/Projects/nixos-config/ root@2.31.95.62:/etc/nixos-config/
+
+# On the VPS: carry the generated networking across, then switch
 ssh root@2.31.95.62
-nixos-rebuild switch --flake /etc/nixos#vps
+cp /etc/nixos/networking.nix /etc/nixos-config/hosts/vps/networking.nix
+# add  ./networking.nix  to the imports list in hosts/vps/default.nix
+nixos-rebuild switch --flake /etc/nixos-config#vps
 ```
 
-## 5. Deploy the homeserver side
+Switching enables sops, so the age key must already be installed
+(step 5 below) or `sops-install-secrets` will fail.
+
+## 5. Install the age keys and deploy the homeserver
+
+### 5a. Age key on the VPS (do this BEFORE the 4d switch)
+
+`sops-install-secrets` runs during the switch and cannot decrypt the
+WireGuard private key without this file. Path must match
+`sops.age.keyFile` in `hosts/vps/default.nix`.
+
+```bash
+scp ~/age-keys/vps.txt root@2.31.95.62:/tmp/ak.txt
+ssh root@2.31.95.62 'install -d -m 0700 /var/lib/sops-nix && \
+  install -m 0400 /tmp/ak.txt /var/lib/sops-nix/key.txt && rm -f /tmp/ak.txt'
+```
+
+### 5b. Deploy the homeserver
 
 The homeserver keeps its existing Plex setup; the only new piece is the
 WireGuard client module. Per `AGENTS.md`, builds happen on the server:
@@ -240,6 +236,13 @@ WireGuard client module. Per `AGENTS.md`, builds happen on the server:
 ```bash
 rsync -avz --exclude '.git' . homeserver:~/nixos-config/
 ssh homeserver "cd ~/nixos-config && sudo nixos-rebuild switch --flake .#homeserver"
+```
+
+The homeserver already has its age key at `/var/lib/sops-nix/key.txt`.
+Verify the tunnel came up:
+
+```bash
+ssh homeserver 'sudo systemctl status sops-install-secrets --no-pager; sudo wg show'
 ```
 
 ## 6. Verify

@@ -7,11 +7,6 @@
     home-manager.url = "github:nix-community/home-manager/release-25.11";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
 
-    # Declarative disk partitioning, used both by nixos-anywhere at install
-    # time and by hosts/vps/default.nix at runtime.
-    disko.url = "github:nix-community/disko/v1.12.0";
-    disko.inputs.nixpkgs.follows = "nixpkgs";
-
     # Secret deployment (WireGuard keys). Secrets themselves are encrypted
     # in secrets/ and never committed in plaintext.
     #
@@ -86,10 +81,6 @@
         # Public gateway VPS: WireGuard endpoint + Caddy TLS reverse proxy.
         vps = mkSystem "x86_64-linux" [ ./hosts/vps/default.nix ];
       };
-
-      # Passthrough so `nix run .#disko` works, e.g. for a dry-activate of
-      # hosts/vps/disko.nix before touching /dev/sda.
-      packages.x86_64-linux.disko = inputs.disko.packages.x86_64-linux.disko;
 
       formatter.x86_64-linux = nixpkgs.legacyPackages.x86_64-linux.nixfmt;
     };
