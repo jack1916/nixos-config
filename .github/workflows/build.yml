@@ -12,5 +12,7 @@ jobs:
             experimental-features = nix-command flakes
       - name: Check flake
         run: nix flake check --no-build
-      - name: Evaluate system configuration
-        run: nix eval .#nixosConfigurations.homeserver.config.system.build.toplevel.drvPath
+      - name: Evaluate system configurations
+        run: |
+          nix eval .#nixosConfigurations.homeserver.config.system.build.toplevel.drvPath
+          nix eval .#nixosConfigurations.vps.config.system.build.toplevel.drvPath

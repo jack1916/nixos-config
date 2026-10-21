@@ -1,0 +1,22 @@
+# sops recipient routing.
+#
+# Each secrets file is encrypted to its own host plus the admin key, so:
+#   - homeserver can decrypt ONLY secrets/homeserver.yaml
+#   - vps        can decrypt ONLY secrets/vps.yaml
+#   - admin (this laptop) can decrypt both
+#
+# Host age keys live at /var/lib/sops-nix/key.txt (sops.age.keyFile).
+# The admin private key lives at ~/age-keys/admin.txt and is used via
+# SOPS_AGE_KEY_FILE=~/age-keys/admin.txt when editing.
+keys:
+  - &homeserver age1g22etj663pxpz9amjlc0rp22h89s7t99pu89j3l6jfxg5cxn9vlqfe4jvy
+  - &vps age1stkfkc2gf5vx00p4kawj3gn04875pmakap9m5rvcqy7hc73uageqnp5dhw
+  - &admin age1p8kk4y2l0x304unuex72jv573sas4uvrvh7csfh47fz97p2fx3zqgatl8r
+
+creation_rules:
+  - path_regex: secrets/homeserver\.yaml$
+    key_groups:
+      - age: [*homeserver, *admin]
+  - path_regex: secrets/vps\.yaml$
+    key_groups:
+      - age: [*vps, *admin]
