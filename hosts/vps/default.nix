@@ -11,11 +11,13 @@
   lib,
   pkgs,
   inputs,
+  modulesPath,
   ...
 }:
 
 {
   imports = [
+    (modulesPath + "/profiles/qemu-guest.nix")
     inputs.disko.nixosModules.disko
     ./disko.nix
     ./wireguard.nix
@@ -27,8 +29,15 @@
   nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
   system.stateVersion = "25.11";
 
-  boot.loader.systemd-boot.enable = true;
-  boot.loader.efi.canTouchEfiVariables = true;
+  # Hetzner x86_64 cloud VMs boot via LEGACY BIOS, so use grub (not
+  # systemd-boot, which needs UEFI). This pairs with the 1M EF02 BIOS boot
+  # partition declared in disko.nix.
+  #
+  # Do NOT also set boot.loader.grub.device here: disko already generates a
+  # mirroredBoots entry for the /boot filesystem on /dev/sda, and adding an
+  # explicit device makes grub see /dev/sda twice, which trips
+  # "You cannot have duplicated devices in mirroredBoots".
+  boot.loader.grub.enable = true;
   boot.loader.timeout = 3;
 
   # Single-disk VPS: make sure the initrd has virtio/virtio-scsi drivers so
@@ -47,6 +56,15 @@
   # --- Basics -----------------------------------------------------------
   networking.hostName = "vps";
   time.timeZone = "Europe/Dublin";
+
+  # Hetzner Cloud hands out IPv4 over DHCP. Without this the machine boots
+  # with no network and becomes unreachable over SSH.
+  networking.useDHCP = lib.mkDefault true;
+
+  # Hetzner VMs are KVM/QEMU; virtio_gpu plus the serial console keep the
+  # web console usable (logs are also sent to ttyS0).
+  boot.initrd.kernelModules = [ "virtio_gpu" ];
+  boot.kernelParams = [ "console=tty1" "console=ttyS0" ];
 
   nix.settings = {
     experimental-features = [

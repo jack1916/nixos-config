@@ -19,3 +19,7 @@ secrets.nix
 
 .DS_Store
 .direnv
+
+# Boot media (large, never commit)
+*.iso
+*.iso.sha256

@@ -115,34 +115,121 @@ log in after `nixos-anywhere` reboots:
 openssh.authorizedKeys.keys = [ "ssh-ed25519 AAAA... you@laptop" ];
 ```
 
-## 4. Install the VPS with nixos-anywhere
+## 4. Install the VPS
 
-The VPS provider boots a rescue/installer image as root. `disko` wipes
-`/dev/sda` — double-check the disk before running.
+### Why nixos-anywhere does NOT work on Hetzner Cloud
+
+These are hard constraints on Hetzner x86_64 cloud VMs, verified against a
+real instance:
+
+1. **Legacy BIOS boot.** `kexec` fails with `PEFILE: Unsigned PE binary` and
+   there is no option to make it work. This is not transient.
+2. **You cannot skip kexec.** Running `--phases disko,install,reboot` while
+   the target disk is the *running root* makes disko rewrite the GPT and zero
+   the MBR, but the kernel refuses to reload the partition table of an
+   in-use disk. The result is **a machine that will not boot**.
+
+  There is no `--no-kexec` flag in current nixos-anywhere; use `--phases`.
+
+**Therefore: boot a NixOS minimal ISO**, which runs entirely in RAM, so
+`/dev/sda` is free and disko works normally.
+
+### 4a. Boot the installer ISO
+
+1. NixOS console → your server → **Power → Shut down** (ISO upload requires
+   the server to be off).
+2. **ISO Images → Mount ISO** → select NixOS (Hetzner often has one ready;
+   any recent version works, the installed system comes from this flake's
+   pinned nixpkgs, not from the ISO).
+   Otherwise download and verify, then upload:
+
+   ```bash
+   curl -LO https://channels.nixos.org/nixos-25.11/latest-nixos-minimal-x86_64-linux.iso
+   curl -LO https://channels.nixos.org/nixos-25.11/latest-nixos-minimal-x86_64-linux.iso.sha256
+   sha256sum -c latest-nixos-minimal-x86_64-linux.iso.sha256
+   ```
+
+3. **Power on**, open the **web console (VNC)** and pick the installer entry.
+
+> The installer has **no root password and no authorized keys**. Log in as
+> `root` at the **console** (press Enter at the password prompt). SSH is not
+> usable until step 4b is done.
+
+### 4b. Networking (Hetzner needs manual config)
+
+Hetzner assigns a `/32` address with a gateway outside that subnet, so DHCP
+will not give you a working default route in the installer.
 
 ```bash
-nix run github:nix-community/nixos-anywhere -- \
-  --flake .#vps \
-  root@2.31.95.62
+ip -br link                 # find the interface name, e.g. ens3
+ip link set ens3 up
+ip addr add 2.31.95.62/32 dev ens3
+ip route add 172.31.1.1 dev ens3          # 'onlink' - must precede default
+ip route add default via 172.31.1.1 dev ens3
+echo "nameserver 1.1.1.1" > /etc/resolv.conf
+
+curl -sI https://cache.nixos.org | head -1   # expect HTTP/2 200
 ```
 
-Useful extras:
+Now enable SSH so you can stop using VNC:
 
 ```bash
-# Skip kexec (some providers block it) and reboot into their image instead
-nix run github:nix-community/nixos-anywhere -- \
-  --flake .#vps --no-kexec root@2.31.95.62
-
-# Also copy this host's age key into place in the same run
-nix run github:nix-community/nixos-anywhere -- \
-  --flake .#vps --extra-files ./vps-extra-files root@2.31.95.62
+mkdir -p /root/.ssh
+cat > /root/.ssh/authorized_keys <<'EOF'
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE+aHyrXiBrZZaJ6kQTwBq8buMW4CGB0YaaLgO0OsxSc jack@arch-laptop-jack
+EOF
+chmod 700 /root/.ssh; chmod 600 /root/.ssh/authorized_keys
+systemctl start sshd
+passwd root    # backup access
 ```
 
-To inspect what disko would do without touching the disk (run **on the
-VPS**, since it reads the real block devices):
+### 4c. Partition and install
+
+Confirm you are in RAM and `/dev/sda` is free before touching it:
 
 ```bash
-nix run .#disko -- --mode dry-activate --flake .#vps
+lsblk -f        # /dev/sda must have NO mountpoints
+```
+
+```bash
+parted /dev/sda --script mklabel gpt
+parted /dev/sda --script mkpart boot 1MiB 2MiB
+parted /dev/sda --script set 1 bios_grub on
+parted /dev/sda --script mkpart ESP fat32 2MiB 514MiB
+parted /dev/sda --script set 2 esp on
+parted /dev/sda --script mkpart root ext4 514MiB 100%
+
+mkfs.vfat -F32 -n ESP /dev/sda2
+mkfs.ext4 -L nixos /dev/sda3
+
+mount /dev/sda3 /mnt
+mkdir -p /mnt/boot
+mount /dev/sda2 /mnt/boot
+```
+
+Then install this flake. The repo is **private**, so from the installer either
+make it public temporarily or copy it over. Easiest reliable route is to run
+`nixos-generate-config` and install a stock system, then switch to the flake
+over SSH (step 4d):
+
+```bash
+nixos-generate-config --root /mnt
+# add to /mnt/etc/nixos/configuration.nix:
+#   services.openssh.enable = true;
+#   users.users.root.openssh.authorizedKeys.keys = [ "<your key>" ];
+#   boot.loader.grub.enable = true;
+#   boot.loader.grub.device = "/dev/sda";
+#   networking.useDHCP = true;
+nixos-install      # set a root password when prompted
+reboot
+```
+
+### 4d. Switch to this flake
+
+```bash
+scp -r ~/Projects/nixos-config root@2.31.95.62:/etc/nixos/
+ssh root@2.31.95.62
+nixos-rebuild switch --flake /etc/nixos#vps
 ```
 
 ## 5. Deploy the homeserver side
