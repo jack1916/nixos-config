@@ -3,6 +3,7 @@ secrets.nix
 *.pem
 secrets.json
 .env
+*.sudoers
 
 result
 result-*

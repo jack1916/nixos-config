@@ -13,6 +13,7 @@
   imports = [
     # Include the results of the hardware scan.
     ./hardware-configuration.nix
+    ./modules/services/plex.nix
   ];
 
   nixpkgs.config.allowUnfree = true;
@@ -83,6 +84,9 @@
       };
     };
   };
+  # Allow members of the 'wheel' group to run sudo without a password.
+  security.sudo.wheelNeedsPassword = false;
+
   # Define a user account. Don't forget to set a password with ‘passwd’.
   users.users.jack = {
     isNormalUser = true;
