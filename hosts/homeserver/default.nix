@@ -68,10 +68,23 @@
   services.power-profiles-daemon.enable = true;
   powerManagement.powertop.enable = true;
 
+  # Pull the flake from GitHub rather than a local checkout. Pointing at a
+  # local path silently did nothing: flake.lock is pinned, so without a
+  # `git pull` the rebuild just reproduced the same closure every night and
+  # no security patches ever arrived.
+  #
+  # The lock advances only via the weekly Update Flake Lock PR, which is
+  # gated on both hosts building. Do NOT add `--update-input nixpkgs`
+  # here: that would let this machine resolve its own nixpkgs and bypass
+  # that gate.
   system.autoUpgrade = {
     enable = true;
-    flake = "/home/jack/nixos-config/";
+    flake = "github:jack1916/nixos-config#homeserver";
     dates = "03:00";
+    # Kernel, glibc and systemd patches need a reboot to take effect.
+    # Plex drops briefly inside the window; that is the trade for
+    # actually running patched code.
+    allowReboot = true;
     rebootWindow = {
       lower = "03:00";
       upper = "05:00";

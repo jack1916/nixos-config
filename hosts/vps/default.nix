@@ -156,12 +156,19 @@
   sops.defaultSopsFormat = "yaml";
 
   # --- Unattended upgrades ---------------------------------------------
-  # DISABLED by default: the nixos-config remote is private, so this host
-  # cannot fetch the flake without a deploy key. Enabling it as-is would
-  # fail every night. To turn it on, either:
-  #   1. add a read-only deploy key and clone the repo to /etc/nixos-config,
-  #      then set flake = "/etc/nixos-config#vps"; or
-  #   2. make the repo public and use github:jack1916/nixos-config#vps.
-  # Until then, upgrade manually (see hosts/vps/README.md).
-  system.autoUpgrade.enable = false;
+  # Pull from GitHub. The lock advances only via the weekly Update Flake
+  # Lock PR, which is gated on both hosts building; do NOT add
+  # `--update-input nixpkgs` here or this host would resolve its own
+  # nixpkgs and bypass that gate.
+  system.autoUpgrade = {
+    enable = true;
+    flake = "github:jack1916/nixos-config#vps";
+    dates = "04:00";
+    # Deliberately NO allowReboot: this is the public Plex gateway, and a
+    # reboot here takes the service down for every remote client. Updates
+    # are applied live; reboot manually at a convenient time when the
+    # journal shows a pending kernel/systemd change:
+    #   systemctl reboot   (or: ssh root@2.31.95.62 reboot)
+    allowReboot = false;
+  };
 }

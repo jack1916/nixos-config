@@ -270,12 +270,85 @@ sudo nft list ruleset | grep 51820
 curl -s https://ifconfig.me
 ```
 
+## 7. Keeping machines patched
+
+Security patches flow through three stages. The lock advances in CI, a
+human reviews it, and only then do the machines pick it up.
+
+```
+CI (weekly)  →  update flake.lock, build both hosts, open a PR
+     ↓            you review and merge
+main branch  →  flake.lock advances
+     ↓            machines pull from GitHub
+homeserver   →  nightly 03:00, rebuilds and reboots in 03:00-05:00
+vps          →  nightly 04:00, rebuilds but NEVER reboots automatically
+```
+
+### Why it is set up this way
+
+`system.autoUpgrade` previously pointed at a local path
+(`/home/jack/nixos-config/`). That silently did nothing: `flake.lock` is
+pinned, and without a `git pull` the nightly rebuild just reproduced the
+same closure. **No security patches ever arrived.**
+
+Both hosts now use `github:jack1916/nixos-config#<host>`, which re-checks
+the ref (`--refresh` is added automatically) and picks up whatever is on
+`main`.
+
+Do **not** add `--update-input nixpkgs` to either host. That would let the
+machine resolve its own nixpkgs and bypass the CI build gate below.
+
+### The CI gate
+
+`update-flake.yml` runs weekly (Mondays 00:00 UTC), runs `nix flake
+update`, then **builds both hosts before opening a PR**. If a dependency
+bump breaks either host, the workflow fails and no PR is created.
+
+`build.yml` additionally builds both hosts on every push and PR, so a bad
+commit cannot reach `main` unnoticed.
+
+Merging the lock PR is the point at which patches roll out. If a lock
+update breaks something, revert the merge and machines fall back on the
+next run.
+
+### Checking for pending reboots
+
+The VPS never reboots itself, so check periodically:
+
+```bash
+scripts/update-check.sh              # both hosts
+scripts/update-check.sh vps
+```
+
+It reports the current vs booted generation, the next autoUpgrade run, and
+whether a reboot is pending. When the VPS shows a pending reboot, do it at
+a convenient time:
+
+```bash
+ssh root@2.31.95.62 systemctl reboot
+```
+
+### Rollback
+
+If an update breaks a host, boot the previous generation from the boot
+menu, or:
+
+```bash
+ssh root@<host> 'nixos-rebuild --rollback switch'
+```
+
+Garbage collection keeps 30 days on the homeserver and 14 days on the VPS,
+so rollback targets remain available.
+
 ## Operational notes
 
 - **Caddy reloads, not restarts**, on config change (`enableReload`
   defaults to true), so `globalConfig` keeps the admin API enabled and only
   sets `grace_period 30s` to stop reloads hanging on long media streams.
-- **MTU 1420** on both peers (1500 − 80 bytes WireGuard/IPv4/UDP overhead).
+- **MTU 1380** on both peers, NOT the usual 1420. PMTU probing showed
+  payloads above 1364 bytes were dropped on the carrier-NAT path, which
+  made large transfers hang while small ones worked. See the comment in
+  `wireguard.nix`.
 - **Plex "Remote Access" should be left OFF.** Advertising the carrier-NAT
   address is exactly what this tunnel avoids; clients reach Plex via
   `plex.9485432.xyz`.

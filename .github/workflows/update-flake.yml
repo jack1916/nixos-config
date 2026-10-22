@@ -1,0 +1,63 @@
+name: Update Flake Lock
+
+on:
+  schedule:
+    # Mondays 00:00 UTC. Security patches land within a week of release.
+    # Machines only pick these up once the PR below is merged, so this
+    # cadence is the real delay.
+    - cron: "0 0 * * 1"
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Update flake.lock
+        run: nix flake update
+
+      # Build BEFORE opening the PR. If the new lock breaks a host, we
+      # find out here and the PR is not created (the workflow fails
+      # loudly instead, so it is visible in Actions).
+      - name: Verify both hosts still build
+        run: |
+          nix build --no-link \
+            .#nixosConfigurations.homeserver.config.system.build.toplevel
+          nix build --no-link \
+            .#nixosConfigurations.vps.config.system.build.toplevel
+
+      - name: Collect changed revisions
+        id: revs
+        run: |
+          {
+            echo "body<<EOF"
+            echo "Automated \`nix flake update\`. Both hosts build successfully."
+            echo
+            echo "| input | revision |"
+            echo "| --- | --- |"
+            nix flake metadata --json \
+              | jq -r '.locks.nodes | to_entries[]
+                       | select(.key != "root")
+                       | "| \(.key) | `\(.value.locked.rev // "n/a")` |"'
+            echo
+            echo "Merging this advances the lock that both machines pull."
+            echo "Review the nixpkgs delta, then merge to roll out patches."
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore: update flake.lock"
+          title: "Update flake.lock"
+          body: ${{ steps.revs.outputs.body }}
+          branch: update-flake-lock
+          delete-branch: true
