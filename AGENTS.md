@@ -168,9 +168,13 @@ These are the real failure modes, each of which cost significant time.
      *mounted as `/`*, so the kernel refuses to reload the partition table:
      disko rewrites the GPT and **zeroes the MBR** without creating
      filesystems, leaving an unbootable machine. This happened.
-   - **Correct method:** `nixos-infect` converts the provider's Ubuntu image
-     in place. See `hosts/vps/README.md` §4 for the full procedure,
-     including the manual networking step.
+   - Correct method is now **method A in `hosts/vps/README.md` §4: boot a
+     custom NixOS ISO** (Hetzner supports attaching a custom ISO). This
+     makes the host NixOS from first boot and removes the conversion step,
+     which is where every vps install failure in this list originates.
+     `nixos-infect` is the fallback and now needs the extra workaround in
+     item 3b below. Still an open upstream problem as of writing:
+     nixos-anywhere #651 (`kexec_file_load failed` on Hetzner CX23).
 
 4. **nixos-infect silently skips networking.** It contains the bug
    `[ ! -v $PROVIDER ]` (missing `$`), so provider autodetection never
@@ -184,6 +188,35 @@ These are the real failure modes, each of which cost significant time.
 5. **nixos-infect `swapon` fails on tmpfs.** It creates a 1 GiB swapfile in
    `/tmp`; if `/tmp` is tmpfs the kernel rejects it with
    `Invalid argument`. Use `NO_SWAP=1` (4 GB RAM is enough without swap).
+
+3b. **nixos-infect + systemd stage-1 = a silently dead host.** nixpkgs PR
+   #435781 (merged 2026-04-08) made `boot.initrd.systemd.enable = true` the
+   default. The systemd stage-1 initrd **cannot lustrate**, so a
+   nixos-infect conversion never sweeps the old distro into `/old-root`:
+   the NixOS kernel boots against the old distro's `/etc`, systemd loads
+   the old distro's units, and the machine comes up **with no networking
+   and appears dead while the console still works**. The script exits 0, so
+   it looks successful. Upstream issue #276; fixes #267/#269 **unmerged**.
+
+   Two required workarounds:
+   - `boot.initrd.systemd.enable = false` (pinned in
+     `hosts/vps/default.nix` with an explanatory comment).
+   - `defaultGateway` must use the attrs form `{ address; interface; }`.
+     The bare-string form nixos-infect generates stopped producing a usable
+     default route in 26.05+ (upstream #271), which is a second independent
+     way to boot with no networking.
+
+   **`boot.initrd.systemd.enable = false` is deprecated and is slated for
+   removal in NixOS 26.11.** When that lands, do not just delete the line:
+   the durable fix is to stop using nixos-infect entirely (install from an
+   ISO or prebuilt image so the host is NixOS from first boot).
+
+4b. **nixos-infect's generated networking contains a MAC-based udev rename
+   rule** (`ATTR{address}="<mac>", NAME="eth0"`) and a `/32` onlink route.
+   Both are upstream (`makeNetworkingConf`) output, not local hacks. The
+   MAC rule is redundant on Hetzner (the NIC is already `eth0` with
+   `usePredictableInterfaceNames = false`) and was removed from
+   `hosts/vps/networking.nix`; do not reintroduce it.
 
 6. **Re-running nixos-infect does not regenerate networking.** `makeConf`
    begins with `[[ -e /etc/nixos/configuration.nix ]] && return 0`, so once

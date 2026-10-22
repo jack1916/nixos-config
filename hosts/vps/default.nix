@@ -43,6 +43,30 @@
   boot.loader.grub.device = "/dev/sda";
   boot.loader.timeout = 3;
 
+  # --- nixos-infect / lustrate compatibility ---------------------------
+  # This host was installed with nixos-infect, which converts a stock
+  # Ubuntu image IN PLACE using NIXOS_LUSTRATE. Lustration DOES NOT WORK
+  # with the systemd-based stage-1 initrd, which became the default in
+  # nixpkgs on 2026-04-08 (PR #435781, "Enable systemd stage 1 by
+  # default").
+  #
+  # Without this line a nixos-infect install looks like it succeeded (the
+  # script exits 0) but then boots a NixOS initrd against the OLD distro's
+  # intact /etc: the old distro is never swept into /old-root, systemd
+  # loads the old distro's unit files, and the machine comes up with NO
+  # NETWORKING and appears dead even though the console works. Upstream
+  # nixos-infect issue #276. This is exactly how this VPS went dark.
+  #
+  # Upstream fixes (#267 pin scripted initrd, #269 lustrate module for
+  # systemd stage-1) are still unmerged, so pin it here for now.
+  #
+  # STOPGAP: boot.initrd.systemd.enable = false is deprecated and is
+  # scheduled for removal in NixOS 26.11. Do not just delete this line when
+  # that happens - the durable fix is to stop using nixos-infect (install
+  # from a NixOS ISO or a prebuilt image so the host is NixOS from first
+  # boot). See hosts/vps/README.md.
+  boot.initrd.systemd.enable = false;
+
   # Single-disk VPS: make sure the initrd has virtio/virtio-scsi drivers so
   # the machine boots on any KVM provider.
   boot.initrd.availableKernelModules = [

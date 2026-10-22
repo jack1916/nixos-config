@@ -53,12 +53,19 @@ in
   # Allow inbound Plex requests that arrive over the tunnel.
   networking.firewall.trustedInterfaces = [ "wg0" ];
 
-  # Verify the tunnel is healthy after boot, and let failures show up in
-  # the journal instead of silently dropping streams.
+  # Restart the tunnel if it dies, so a dropped tunnel shows up in the
+  # journal instead of silently dropping streams.
+  #
+  # Do NOT add after/wants = [ "network-online.target" ] here. The nixpkgs
+  # WireGuard module orders the interface unit with `before = [
+  # "network.target" ]` (so wg0 exists before its addresses are assigned),
+  # and network-online.target is ordered after network.target. Adding the
+  # onlined edge therefore creates the cycle
+  #   wg0 -> network.target -> network-online.target -> wg0
+  # which systemd resolves by DELETING the interface's start job: wg0 is
+  # never created and the tunnel is dead after every boot.
+  # wantedBy = multi-user.target is already set by the module.
   systemd.services."wireguard-wg0" = {
-    wantedBy = [ "multi-user.target" ];
-    after = [ "network-online.target" ];
-    wants = [ "network-online.target" ];
     serviceConfig.Restart = "on-failure";
   };
 

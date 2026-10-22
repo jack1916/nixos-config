@@ -131,7 +131,11 @@ Two hard constraints on Hetzner x86_64 cloud VMs, both verified on a real
 instance:
 
 1. **Legacy BIOS boot.** `kexec` fails with `PEFILE: Unsigned PE binary`
-   and there is no way to enable it. Not transient.
+   and there is no way to enable it. Not transient. Still current
+   upstream: nixos-anywhere issue #651
+   (`kexec_file_load failed: Address not available on Hetzner CX23`,
+   reproduced on Ubuntu 26.04) remains **open**. So there is no supported
+   unattended NixOS install path for this host class via nixos-anywhere.
 2. **Skipping kexec is destructive.** `--phases disko,install,reboot`
    (there is no `--no-kexec` flag) repartitions the disk that is currently
    mounted as `/`. The kernel will not reload the partition table of an
@@ -140,46 +144,117 @@ instance:
    happened. Recover with the Hetzner console's Rebuild.
 
 `nixos-infect` avoids both: it converts the running Ubuntu **in place**, so
-no kexec, no ISO, no partitioning.
+no kexec, no partitioning. It does still involve booting a non-NixOS OS
+first, which is precisely what the lustrate/initrd problem breaks (see §4).
+
+A **custom NixOS ISO** avoids all three constraints and is preferred; see
+method A in §4.
 
 ### Trade-off
 
-Partitioning is no longer declared in this repo. The machine keeps
-Hetzner's layout (`sda1` root, `sda14` bios_grub, `sda15` ESP), and
-`hardware-configuration.nix` records those UUIDs. **Recreating or
+Under method B (nixos-infect) partitioning is not declared in this repo:
+the machine keeps Hetzner's layout (`sda1` root, `sda14` bios_grub, `sda15`
+ESP), and `hardware-configuration.nix` records those UUIDs. **Recreating or
 rebuilding the server changes the UUIDs** — update that file or the system
 will not boot.
 
+Under method A (NixOS ISO) the disk is declared, so this problem goes away;
+see the note at the end of §4a'.
+
 ### 4a. Rebuild the server as Ubuntu
 
-Hetzner console → your server → **Rebuild** → Ubuntu → confirm. Select your
-SSH key so root login works. A few minutes.
+> **STOP. Read this before choosing a method.**
+>
+> As of nixpkgs 2026-04-08 (PR #435781) systemd stage-1 became the default
+> initrd, and **it cannot lustrate**. A stock `nixos-infect` run now
+> produces a machine that boots against the old distro's `/etc` and comes
+> up **with no networking, appearing dead while the console works**. The
+> script exits 0, so the failure is silent. This is upstream issue #276
+> and is exactly how this VPS was lost. The fixes (#267, #269) are still
+> **unmerged**.
+>
+> Therefore prefer **method A (NixOS ISO)** and treat method B as a
+> fallback with an explicit workaround.
 
-Confirm the result:
+### Method A (preferred): install from a NixOS ISO
+
+Hetzner supports attaching a **custom ISO**. This makes the machine NixOS
+from first boot: no nixos-infect, no lustrate, no generated networking,
+and the flake is authoritative for both disks and network.
 
 ```bash
-ssh root@2.31.95.62 'lsblk -f /dev/sda; [ -d /sys/firmware/efi ] && echo UEFI || echo BIOS'
+# 1. Build a NixOS installer ISO (on the homeserver; the laptop cannot build).
+nix build github:nix-community/nixos-images#packages.x86_64-linux.nixos-installer-x86_64-linux
+# or, with nixos-generators:
+#   nixos-generate -f iso
 ```
 
-Expect `sda1` ext4 on `/` and **BIOS**. Note the UUIDs and check they match
-`hosts/vps/hardware-configuration.nix`; update it if they differ.
+1. Hetzner console → server → **ISO** → attach the ISO (upload it first if
+   needed) → **reboot** into it. Open the web console to watch it boot.
+2. In the live installer, partition and install **from this flake** so the
+   disk layout is declared, not inherited. Use disko here (see
+   `hosts/vps/disko.nix` in git history) so `fileSystems` is generated
+   rather than copied as UUIDs.
+3. `nixos-install --flake ./nixos-config#vps`, copy the age key into
+   `/mnt/var/lib/sops-nix/key.txt` first (step 5a), then reboot.
 
-### 4b. Run nixos-infect
+Because the disk is declared, `hosts/vps/hardware-configuration.nix` can be
+replaced by generated-from-disko values and the UUID-shuffling problem
+below disappears.
+
+### Method B (fallback): nixos-infect
+
+Only if method A is not possible. The flags are **all required**; the
+upstream README omits them and the defaults produce a broken host.
 
 ```bash
 ssh root@2.31.95.62
 curl -sfL https://raw.githubusercontent.com/elitak/nixos-infect/master/nixos-infect \
   -o /tmp/nixos-infect
-NO_REBOOT=1 bash /tmp/nixos-infect      # inspect before rebooting
+
+NIX_CHANNEL=nixos-25.11 \
+PROVIDER=hetznercloud \
+doNetConf=y \
+NO_SWAP=1 \
+NO_REBOOT=1 \
+bash /tmp/nixos-infect
 ```
 
-`NO_REBOOT=1` lets you look at the generated config first. It writes:
+Why each flag matters:
+
+| Flag | Why |
+|---|---|
+| `PROVIDER=hetznercloud` | Provider autodetect is broken upstream (`[ ! -v $PROVIDER ]`, missing `$`), so it never runs. See AGENTS.md §4. |
+| `doNetConf=y` | The actual lever that makes `makeNetworkingConf` run, so `networking.nix` is generated at all. Upstream README recommends it when networking fails. |
+| `NO_SWAP=1` | Swapfile creation fails if `/tmp` is tmpfs (`Invalid argument`). AGENTS.md §5. |
+| `NO_REBOOT=1` | Lets you inspect and fix the generated config **before** the first boot. Essential — see the workaround below. |
+| `NIX_CHANNEL=nixos-25.11` | Avoids newer-channel churn; combined with the initrd pin below. |
+
+`NO_REBOOT=1` writes:
 
 - `/etc/nixos/configuration.nix`
 - `/etc/nixos/hardware-configuration.nix`
 - `/etc/nixos/networking.nix` — the Hetzner `/32` address + onlink gateway
 
-Check `networking.nix` contains your real address and gateway, then:
+**Before rebooting you MUST do two things:**
+
+```bash
+# 1. Pin the scripted initrd - without this the machine boots unreachable.
+#    (Upstream issue #276. See the comment in hosts/vps/default.nix.)
+echo 'boot.initrd.systemd.enable = false;' >> /etc/nixos/configuration.nix
+
+# 2. Verify the generated networking against reality, and fix the gateway.
+#    Issue #271: the bare-string form nixos-infect writes (`defaultGateway
+#    = "172.31.1.1"`) lost its interface binding in 26.05+ and drops all
+#    networking. Use the attrs form.
+ip -4 addr show eth0
+ip -4 route show
+cat /etc/nixos/networking.nix
+```
+
+Check `networking.nix` contains the real address and gateway, and that
+`defaultGateway` is the attrs form (`{ address = ...; interface = "eth0"; }`),
+comparing against `hosts/vps/networking.nix` in this repo. Only then:
 
 ```bash
 reboot
