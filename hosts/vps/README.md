@@ -272,17 +272,23 @@ curl -s https://ifconfig.me
 
 ## 7. Keeping machines patched
 
-Security patches flow through three stages. The lock advances in CI, a
-human reviews it, and only then do the machines pick it up.
+Fully automatic, with a build gate. Nothing waits on a human.
 
 ```
-CI (weekly)  →  update flake.lock, build both hosts, open a PR
-     ↓            you review and merge
-main branch  →  flake.lock advances
+CI (daily 02:00 UTC)
+     → nix flake update
+     → BUILD BOTH HOSTS          ← the gate
+     → if both build: commit flake.lock to main
+     → if either fails: nothing is committed, workflow fails loudly
+main branch  → flake.lock advances
      ↓            machines pull from GitHub
 homeserver   →  nightly 03:00 (+15m jitter), reboots in 03:00-05:00
 vps          →  nightly 03:00 (+10m jitter), reboots in 03:00-04:30
 ```
+
+Patches reach the machines within roughly 24h of upstream. There is no PR
+to merge: the daily commit lands on `main` directly, and `build.yml`
+builds again on that push as a second check.
 
 ### Reboots are conditional, not nightly
 
@@ -318,16 +324,44 @@ machine resolve its own nixpkgs and bypass the CI build gate below.
 
 ### The CI gate
 
-`update-flake.yml` runs weekly (Mondays 00:00 UTC), runs `nix flake
-update`, then **builds both hosts before opening a PR**. If a dependency
-bump breaks either host, the workflow fails and no PR is created.
+`update-flake.yml` runs daily at 02:00 UTC. It runs `nix flake update`,
+then **builds both hosts**. Only if both succeed does it commit
+`flake.lock` and push to `main`. If a dependency bump breaks either host,
+the workflow fails and **nothing is committed** — so the machines never
+see an untested lock.
 
-`build.yml` additionally builds both hosts on every push and PR, so a bad
-commit cannot reach `main` unnoticed.
+It also skips the commit entirely when `flake.lock` is already current, so
+there is no daily commit when nothing moved upstream.
 
-Merging the lock PR is the point at which patches roll out. If a lock
-update breaks something, revert the merge and machines fall back on the
-next run.
+`build.yml` builds both hosts again on every push and PR, so a bad manual
+commit cannot reach `main` unnoticed either.
+
+### If an update breaks something
+
+The build gate catches most problems before they ship, but not all (a
+runtime regression can still compile). If a machine ends up broken:
+
+```bash
+ssh root@<host> 'nixos-rebuild --rollback switch'
+```
+
+Or revert the offending lock commit:
+
+```bash
+cd ~/Projects/nixos-config
+git revert <commit> && git push
+```
+
+Machines pick up the reverted lock on their next 03:00 run. Garbage
+collection keeps 30 days on the homeserver and 14 days on the VPS, so
+rollback generations remain available for that long.
+
+To update on demand without waiting for the schedule, run the workflow
+manually from the Actions tab (`workflow_dispatch`), or locally:
+
+```bash
+nix flake update && git add flake.lock && git commit -m "chore: update flake.lock" && git push
+```
 
 ### Checking for pending reboots
 
@@ -346,18 +380,6 @@ service finished outside its window), apply it by hand:
 ```bash
 ssh root@2.31.95.62 systemctl reboot
 ```
-
-### Rollback
-
-If an update breaks a host, boot the previous generation from the boot
-menu, or:
-
-```bash
-ssh root@<host> 'nixos-rebuild --rollback switch'
-```
-
-Garbage collection keeps 30 days on the homeserver and 14 days on the VPS,
-so rollback targets remain available.
 
 ## Operational notes
 
