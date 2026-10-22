@@ -7,6 +7,14 @@ on:
     # below means a broken update fails the workflow instead of shipping.
     - cron: "0 2 * * *"
   workflow_dispatch:
+    inputs:
+      force_build:
+        description: >
+          Build and commit even if flake.lock is unchanged. Use this to
+          verify the build+commit path works, or to force a rebuild of
+          the machines from the current lock.
+        type: boolean
+        default: false
 
 jobs:
   update:
@@ -29,12 +37,33 @@ jobs:
 
       - name: Detect whether anything changed
         id: changed
+        env:
+          FORCE: ${{ inputs.force_build }}
         run: |
-          if git diff --quiet flake.lock; then
+          if [ "$FORCE" = "true" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "force_build requested: building and committing regardless"
+          elif git diff --quiet flake.lock; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "flake.lock already current; nothing to do"
+            {
+              echo "### No update needed"
+              echo
+              echo \`flake.lock\` is already at the newest upstream revision."
+              echo "Nothing was built or committed. This is the expected"
+              echo "outcome on most days."
+            } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "flake.lock changed; building both hosts before committing"
+            {
+              echo "### Update available"
+              echo
+              echo '```diff'
+              git diff --stat flake.lock
+              echo '```'
+              echo
+              echo "Both hosts must build before this is committed."
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
 
       # THE GATE. If a dependency bump breaks either host, this fails and
@@ -53,5 +82,26 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add flake.lock
+
+          # force_build=true with an unchanged lock leaves nothing to
+          # commit. git commit would then exit non-zero and fail the run,
+          # which would be misleading since the build already passed.
+          if git diff --cached --quiet; then
+            echo "No lock change to commit (force_build run); builds passed."
+            {
+              echo "### Builds passed, nothing to commit"
+              echo
+              echo "\`force_build\` was set but \`flake.lock\` is unchanged,"
+              echo "so there was no commit. Both hosts built successfully."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
           git commit -m "chore: update flake.lock ($(date -u +%Y-%m-%d))"
           git push
+          {
+            echo "### Committed"
+            echo
+            echo "Pushed \`$(git rev-parse --short HEAD)\` to main."
+            echo "Machines pick this up at their next 03:00 run."
+          } >> "$GITHUB_STEP_SUMMARY"
