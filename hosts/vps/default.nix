@@ -118,8 +118,11 @@
 
   # root keeps key-only SSH so nixos-anywhere (which connects as root) and
   # post-install recovery both work. Password login stays disabled.
+  # The homeserver key is here so the homeserver can drive the vps directly
+  # (nixos-anywhere runs, recovery) even when the laptop is off the network.
   users.users.root.openssh.authorizedKeys.keys = [
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE+aHyrXiBrZZaJ6kQTwBq8buMW4CGB0YaaLgO0OsxSc jack@arch-laptop-jack"
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFxa2CJhLGMqnTot74TnkjSss4y6Gq4tmuoQkrSsvdQl root@homeserver"
   ];
 
   # Emergency admin user.
@@ -128,6 +131,7 @@
     extraGroups = [ "wheel" ];
     openssh.authorizedKeys.keys = [
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE+aHyrXiBrZZaJ6kQTwBq8buMW4CGB0YaaLgO0OsxSc jack@arch-laptop-jack"
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFxa2CJhLGMqnTot74TnkjSss4y6Gq4tmuoQkrSsvdQl root@homeserver"
     ];
   };
   security.sudo.wheelNeedsPassword = false;
