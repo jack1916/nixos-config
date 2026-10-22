@@ -163,12 +163,29 @@
   system.autoUpgrade = {
     enable = true;
     flake = "github:jack1916/nixos-config#vps";
-    dates = "04:00";
-    # Deliberately NO allowReboot: this is the public Plex gateway, and a
-    # reboot here takes the service down for every remote client. Updates
-    # are applied live; reboot manually at a convenient time when the
-    # journal shows a pending kernel/systemd change:
-    #   systemctl reboot   (or: ssh root@2.31.95.62 reboot)
-    allowReboot = false;
+    # Runs at 03:00 and is permitted to reboot until 03:30. The window must
+    # CONTAIN the run time: allowReboot compares the wall clock against
+    # rebootWindow, and if the service finds itself outside it the reboot
+    # is skipped silently and deferred to the next run.
+    dates = "03:00";
+    # Stagger against the homeserver, which also runs at 03:00, so the two
+    # do not fetch from GitHub at the same instant. The delay is applied to
+    # the timer, so the reboot window below still bounds the actual reboot.
+    randomizedDelaySec = "10m";
+    # Wide enough to cover the random delay plus a full rebuild. If the
+    # service finishes outside this window the reboot is skipped SILENTLY
+    # and deferred to the next run, so do not narrow it to just the delay.
+    rebootWindow = {
+      lower = "03:00";
+      upper = "04:30";
+    };
+    # A reboot only happens when the KERNEL, initrd or kernel modules
+    # actually changed - the module compares booted vs built and does a
+    # plain switch otherwise. So this is not a nightly reboot; it is a
+    # reboot only when a reboot is needed to apply a patch.
+    #
+    # Plex is briefly unreachable for remote clients during that reboot.
+    # 03:00-03:30 was chosen as the low-traffic window.
+    allowReboot = true;
   };
 }

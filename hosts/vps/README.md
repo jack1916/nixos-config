@@ -280,9 +280,27 @@ CI (weekly)  →  update flake.lock, build both hosts, open a PR
      ↓            you review and merge
 main branch  →  flake.lock advances
      ↓            machines pull from GitHub
-homeserver   →  nightly 03:00, rebuilds and reboots in 03:00-05:00
-vps          →  nightly 04:00, rebuilds but NEVER reboots automatically
+homeserver   →  nightly 03:00 (+15m jitter), reboots in 03:00-05:00
+vps          →  nightly 03:00 (+10m jitter), reboots in 03:00-04:30
 ```
+
+### Reboots are conditional, not nightly
+
+`allowReboot` does **not** mean a reboot every night. The service runs
+`nixos-rebuild boot`, then compares the booted against the built
+kernel/initrd/kernel-modules. It reboots **only if those changed**;
+otherwise it does a plain `switch` and leaves the machine running. So a
+reboot happens only when a reboot is actually needed to apply a patch.
+
+Two things to be careful of if you edit the schedule:
+
+- **`rebootWindow` must contain the run time.** The service compares the
+  wall clock against the window and, if it is outside it, skips the reboot
+  *silently* and defers to the next run.
+- **Leave slack for the random delay plus the rebuild.** Narrowing the
+  window to just the delay can cause reboots to be deferred indefinitely.
+  The VPS window is 03:00-04:30 for this reason: it covers a 10 minute
+  jitter plus a full rebuild.
 
 ### Why it is set up this way
 
@@ -313,7 +331,8 @@ next run.
 
 ### Checking for pending reboots
 
-The VPS never reboots itself, so check periodically:
+Both hosts reboot themselves when a patch requires it, but it is still
+worth checking what is pending:
 
 ```bash
 scripts/update-check.sh              # both hosts
@@ -321,8 +340,8 @@ scripts/update-check.sh vps
 ```
 
 It reports the current vs booted generation, the next autoUpgrade run, and
-whether a reboot is pending. When the VPS shows a pending reboot, do it at
-a convenient time:
+whether a reboot is pending. If a reboot was deferred (for example the
+service finished outside its window), apply it by hand:
 
 ```bash
 ssh root@2.31.95.62 systemctl reboot

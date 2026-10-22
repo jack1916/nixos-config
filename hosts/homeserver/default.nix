@@ -81,9 +81,12 @@
     enable = true;
     flake = "github:jack1916/nixos-config#homeserver";
     dates = "03:00";
+    # Stagger against the VPS, which also runs at 03:00.
+    randomizedDelaySec = "15m";
     # Kernel, glibc and systemd patches need a reboot to take effect.
-    # Plex drops briefly inside the window; that is the trade for
-    # actually running patched code.
+    # A reboot only happens when the kernel/initrd actually changed, not
+    # every night. Plex drops briefly inside the window; that is the trade
+    # for actually running patched code.
     allowReboot = true;
     rebootWindow = {
       lower = "03:00";
