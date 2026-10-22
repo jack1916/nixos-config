@@ -73,8 +73,8 @@
   # `git pull` the rebuild just reproduced the same closure every night and
   # no security patches ever arrived.
   #
-  # The lock advances only via the weekly Update Flake Lock PR, which is
-  # gated on both hosts building. Do NOT add `--update-input nixpkgs`
+  # The lock advances only via the daily Update Flake Lock workflow, which
+  # builds both hosts before committing. Do NOT add `--update-input nixpkgs`
   # here: that would let this machine resolve its own nixpkgs and bypass
   # that gate.
   system.autoUpgrade = {

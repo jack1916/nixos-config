@@ -6,9 +6,12 @@
 # homeserver at 10.100.0.2:32400.
 #
 # Plex clients perform a large amount of direct/range traffic, so we:
-#   - disable request buffering / enable streaming-friendly flushing,
-#   - pass through Host + all forwarding headers,
-#   - turn off compression (Plex already serves compressed media).
+#   - disable response buffering (flush_interval -1) so streams are not
+#     held in memory,
+#   - pass through the client's real address,
+#   - compress API/XML responses, which is a small win over the tunnel.
+#     `encode` leaves already-compressed media alone, so video is not
+#     re-encoded.
 {
   ...
 }:
