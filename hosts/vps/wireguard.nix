@@ -47,7 +47,18 @@ in
   };
 
   # 1420 avoids fragmentation on the carrier/DSL path (1500 - WG/IPv4/UDP).
-  networking.interfaces.wg0.mtu = 1420;
+  # MTU must fit the path to the homeserver's carrier-NAT uplink, which is
+  # BELOW a standard 1500. Measured by PMTU probe (ping -M do): payloads up
+  # to 1364 bytes pass, 1368 and above are silently dropped. That caps the
+  # inner IP packet at 1364 + 8 (ICMP) + 20 (IPv4) = 1392.
+  #
+  # 1420 (the usual WireGuard default) was TOO LARGE. TCP handshakes
+  # succeeded because small packets fit, but large transfers stalled
+  # forever as full-size segments were dropped: the Plex page returned
+  # headers and Content-Length but no body ever arrived.
+  #
+  # 1380 leaves headroom for the outer WireGuard encapsulation.
+  networking.interfaces.wg0.mtu = 1380;
 
   # The WireGuard module does NOT open its listen port automatically —
   # without this line the handshake from the homeserver never arrives.

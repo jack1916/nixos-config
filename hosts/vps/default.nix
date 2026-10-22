@@ -25,6 +25,7 @@
 {
   imports = [
     ./hardware-configuration.nix
+    ./networking.nix
     ./wireguard.nix
     ./caddy.nix
     inputs.sops-nix.nixosModules.sops

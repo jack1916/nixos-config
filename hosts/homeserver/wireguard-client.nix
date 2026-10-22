@@ -44,7 +44,10 @@ in
       }
     ];
 
-    mtu = 1420;
+    # Must match the gateway and fit the carrier-NAT path. See the PMTU
+    # note in hosts/vps/wireguard.nix: 1420 was too large and caused large
+    # transfers to hang while small ones worked.
+    mtu = 1380;
   };
 
   # Allow inbound Plex requests that arrive over the tunnel.
