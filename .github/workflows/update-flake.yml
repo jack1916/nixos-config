@@ -48,7 +48,7 @@ jobs:
             {
               echo "### No update needed"
               echo
-              echo \`flake.lock\` is already at the newest upstream revision."
+              echo "flake.lock is already at the newest upstream revision."
               echo "Nothing was built or committed. This is the expected"
               echo "outcome on most days."
             } >> "$GITHUB_STEP_SUMMARY"

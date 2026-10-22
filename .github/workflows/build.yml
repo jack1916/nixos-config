@@ -16,6 +16,9 @@ jobs:
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
+      - name: Check workflow shell syntax
+        run: ./scripts/check-workflows.sh
+
       - name: Check flake
         run: nix flake check --no-build
       - name: Evaluate both hosts
