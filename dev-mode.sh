@@ -1,8 +1,10 @@
 #!/bin/bash
 # Remote build helper for the NixOS flake.
 #
-# The laptop CANNOT run `nix` (it has no /nix/store — see AGENTS.md, "Local
-# Nix is broken"). Every command here therefore delegates to the homeserver.
+# The laptop CAN run `nix` (see AGENTS.md, "Local Nix"), but local builds
+# answer a different question: the laptop is Arch with its own nixpkgs pin,
+# while CI builds this flake against the homeserver's nixpkgs. Every command
+# here therefore delegates to the homeserver so the result matches the gate.
 #
 # It syncs the working tree to a PLAIN rsync target on the homeserver and
 # builds there. That target (~/nixos-config, also reachable as /etc/nixos)

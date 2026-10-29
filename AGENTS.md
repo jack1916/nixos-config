@@ -20,11 +20,13 @@ install method. Do not reintroduce any of it without being asked.
 
 ## Hard rules
 
-- **Do not build locally.** This laptop has a broken Nix install: `/nix/store`
-  does not exist, so *any* `nix` command fails with
-  `error: opening file "/nix/store": No such file or directory`.
-  See "Local Nix is broken" below. Do evaluation and builds on the
-  homeserver over SSH.
+- **Prefer building the system on the homeserver.** Local Nix *does* work
+  now (verified: `nix flake check` and `nix build` both succeed on the
+  laptop), so use it freely for fast feedback — `nix eval`, `nix flake
+  check`, `nixfmt`, quick `nix build`. But the **authoritative** check of
+  the NixOS closure is still the homeserver build, which is what CI runs.
+  See "Local Nix" below for why, and for the old broken-install history
+  so nobody "fixes" a working install.
 - **Never commit plaintext secrets.** There are currently **no secrets in
   this repo** (the WireGuard keys were removed with the VPS). If you add
   any, they go through sops as ciphertext; `.gitignore` already covers
@@ -41,22 +43,46 @@ install method. Do not reintroduce any of it without being asked.
   building there. Just make sure your `rsync` used `--delete` and included
   every new file. See "Where the source of truth is" below.
 
-## Local Nix is broken — full context
+## Local Nix — working (this section used to say the opposite)
 
-`/nix/store` is missing on the laptop. The Arch `nix` package was installed
-(and later removed), leaving `nixbld` users and stale systemd units. The
-official installer then failed on the existing group and on a zombie
-`nix-daemon.service`. This is unresolved.
+**Local Nix on the laptop works.** Do not "repair" it. Verified state:
 
-**Consequence:** always run `nix` commands on the homeserver. A workaround
-used mid-session was `nix --store /tmp/nixstore ...`, which works for
-evaluation but is not a real fix and produces confusing binary-cache
-warnings.
+- `/nix/store` exists (mode `1775`, `root:nixbld`), Nix **2.35.3**
+- `nix-daemon.service` + `nix-daemon.socket` active and enabled
+- `nixbld` group and the 32 `nixbld{1..32}` users exist — these are
+  **correct**, not leftovers. Deleting them breaks the install.
+- `/etc/nix/nix.conf` = `build-users-group = nixbld` (normal)
+- `~/.nix-profile` → `~/.local/state/nix/profiles/profile` (modern XDG
+  layout, expected on 2.35)
 
-If asked to fix local Nix, the path is: remove leftovers
-(`groupdel nixbld`, kill any running `nix-daemon`, `systemctl disable` the
-stale units), then run the official installer via Option B in the session
-notes. Do not attempt `--store /tmp/...` as a substitute.
+Usable locally: `nix eval`, `nix flake check` (green on this repo),
+`nix build` of trivial derivations, `nix-instantiate --find-file nixpkgs`.
+
+### Why the homeserver is still the real gate
+
+The laptop is Arch, with its own nixpkgs pin and its own store. It answers
+"does this flake evaluate and do the files look right", which is cheap and
+useful. It does **not** answer "will the homeserver closure build", because
+CI builds `github:jack1916/nixos-config#homeserver` on the homeserver's own
+nixpkgs. So run `./dev-mode.sh build` (or the ssh `nix build` line) before
+pushing anything that changes a derivation, module, or dependency.
+
+### Historical note — do not re-run these steps
+
+An earlier session had a genuinely broken install (`/nix/store` absent after
+the Arch `nix` package was installed and removed; the official installer
+then failed on the pre-existing `groupdel`-able group and on a zombie
+daemon). That is **resolved**. The old remediation advice — `groupdel
+nixbld`, kill the daemon, disable the units, reinstall via "Option B" —
+would now **destroy a healthy install**, and the `nix --store /tmp/nixstore`
+workaround is obsolete and produces confusing binary-cache warnings. Do
+neither.
+
+One real gotcha remains, and it is easy to misread as a broken install:
+newer Nix no longer exposes `builtins.currentSystem` in pure evaluation, so
+`nix build --expr 'derivation { system = builtins.currentSystem; ...; }'`
+fails with `attribute 'currentSystem' missing`. That is expected — add
+`--impure`.
 
 ## SSH access
 
@@ -97,9 +123,26 @@ Corollaries:
 
 ## Standard workflows
 
-### Validate a change (the ONLY normal workflow)
+### Validate a change
 
-The helper does the sync + check/build for you:
+Fast loop on the laptop (works, use it while editing):
+
+```bash
+nix flake check                     # evaluates nixosConfigurations + formatter
+nix fmt -- --check flake.nix        # formatter is `nixfmt`, via `nix fmt`
+```
+
+Two caveats, both verified:
+
+- Use `nix fmt`, **not** `nix run .#formatter` — the flake exposes the
+  formatter as a plain `formatter.x86_64-linux` derivation, not an app, so
+  `nix run` fails with `attribute 'formatter.type' does not exist`.
+- Passing a directory (`nix fmt -- --check .`) is **deprecated** in this
+  nixfmt and prints a warning. List the files, or use `treefmt-nix`.
+
+Then, before committing anything that changes a derivation, module, or
+dependency, confirm the closure actually builds on the homeserver. The
+helper does the sync + check/build for you:
 
 ```bash
 ./dev-mode.sh check     # rsync --delete, then nix flake check
