@@ -4,7 +4,12 @@
 # the ONLY host in the flake. The public VPS gateway and the WireGuard
 # tunnel that reached it have both been removed; remote access will be
 # re-done with Tailscale (already enabled below). See AGENTS.md for why.
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 {
   imports = [
@@ -34,7 +39,10 @@
     openFirewall = true;
     settings = {
       http.address = "0.0.0.0:3000";
-      dns.upstream_dns = [ "1.1.1.1" "8.8.8.8" ];
+      dns.upstream_dns = [
+        "1.1.1.1"
+        "8.8.8.8"
+      ];
     };
   };
 
@@ -42,7 +50,11 @@
 
   users.users.jack = {
     isNormalUser = true;
-    extraGroups = [ "wheel" "networkmanager" "docker" ];
+    extraGroups = [
+      "wheel"
+      "networkmanager"
+      "docker"
+    ];
   };
 
   environment.systemPackages = with pkgs; [
@@ -63,7 +75,10 @@
 
   system.stateVersion = "25.11";
 
-  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+  nix.settings.experimental-features = [
+    "nix-command"
+    "flakes"
+  ];
 
   services.power-profiles-daemon.enable = true;
   powerManagement.powertop.enable = true;

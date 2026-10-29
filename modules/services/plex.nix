@@ -1,11 +1,16 @@
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 {
   # Mount the unmounted storage drive (sdb) to /mnt/media
   fileSystems."/mnt/media" = {
     device = "/dev/disk/by-uuid/07dbcd6c-6077-405d-bb98-ff68de989bad";
     fsType = "ext4";
-    options = ["nofail"];
+    options = [ "nofail" ];
   };
 
   # Enable Plex Media Server service
@@ -26,12 +31,16 @@
   systemd.tmpfiles.settings = {
     "10-plex-media-access" = {
       "/mnt/media" = {
-        "a+" = { argument = "R u:plex:r-x - - - -"; };
+        "a+" = {
+          argument = "R u:plex:r-x - - - -";
+        };
       };
     };
     "11-plex-media-default" = {
       "/mnt/media" = {
-        "a+" = { argument = "d:u:plex:r-x - - - -"; };
+        "a+" = {
+          argument = "d:u:plex:r-x - - - -";
+        };
       };
     };
   };
