@@ -1,9 +1,9 @@
 # Homeserver host entry point.
 #
-# The existing Plex setup stays untouched in modules/services/plex.nix;
-# this file now lives under hosts/homeserver/ so the flake can manage both
-# hosts in one repository. WireGuard client config is a separate module
-# (./wireguard-client.nix) imported from flake.nix.
+# The existing Plex setup stays in modules/services/plex.nix. This is now
+# the ONLY host in the flake. The public VPS gateway and the WireGuard
+# tunnel that reached it have both been removed; remote access will be
+# re-done with Tailscale (already enabled below). See AGENTS.md for why.
 { config, lib, pkgs, ... }:
 
 {
@@ -74,14 +74,16 @@
   # no security patches ever arrived.
   #
   # The lock advances only via the daily Update Flake Lock workflow, which
-  # builds both hosts before committing. Do NOT add `--update-input nixpkgs`
+  # builds this host before committing. Do NOT add `--update-input nixpkgs`
   # here: that would let this machine resolve its own nixpkgs and bypass
   # that gate.
   system.autoUpgrade = {
     enable = true;
     flake = "github:jack1916/nixos-config#homeserver";
     dates = "03:00";
-    # Stagger against the VPS, which also runs at 03:00.
+    # Jitter the fetch so it does not hammer GitHub at exactly 03:00. The
+    # VPS used to run at the same time and this stagger kept the two
+    # apart; with the VPS gone it just spreads load.
     randomizedDelaySec = "15m";
     # Kernel, glibc and systemd patches need a reboot to take effect.
     # A reboot only happens when the kernel/initrd actually changed, not

@@ -1,22 +1,20 @@
 #!/usr/bin/env bash
 # Update status helper.
 #
-# Machines pull the flake from GitHub automatically:
-#   homeserver: nightly 03:00, reboots itself inside 03:00-05:00
-#   vps:        nightly 04:00, NEVER reboots automatically
+# The homeserver pulls the flake from GitHub automatically every night at
+# 03:00 and reboots itself inside the 03:00-05:00 window when the kernel
+# changed. Use this to see whether anything is pending.
 #
-# Use this to see whether anything is pending, especially on the VPS where
-# a reboot needs doing by hand.
+# (The VPS this script used to also cover has been removed.)
 #
 # Usage:
-#   scripts/update-check.sh            # check both hosts
+#   scripts/update-check.sh            # check the homeserver
 #   scripts/update-check.sh homeserver
-#   scripts/update-check.sh vps
 set -euo pipefail
 
 hosts=("$@")
 if [ ${#hosts[@]} -eq 0 ]; then
-  hosts=(homeserver vps)
+  hosts=(homeserver)
 fi
 
 for host in "${hosts[@]}"; do

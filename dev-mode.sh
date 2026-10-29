@@ -1,73 +1,81 @@
 #!/bin/bash
-# Development mode helper for local NixOS flake testing.
+# Remote build helper for the NixOS flake.
 #
-# Per AGENTS.md: this laptop only runs EVALUATION-ONLY operations.
-# Real builds and rebuilds happen on the home server via SSH.
+# The laptop CANNOT run `nix` (it has no /nix/store — see AGENTS.md, "Local
+# Nix is broken"). Every command here therefore delegates to the homeserver.
+#
+# It syncs the working tree to a PLAIN rsync target on the homeserver and
+# builds there. That target (~/nixos-config, also reachable as /etc/nixos)
+# is deliberately NOT a git repo, so there is no staging step and no
+# "Git tree is dirty" ambiguity. See AGENTS.md, "Where the source of truth
+# is".
+#
+# Always synced with --delete: files removed locally must not linger and be
+# built. (A deleted hosts/vps/ once kept reappearing in builds this way.)
 set -euo pipefail
 
-# Directory containing this script (the flake root).
 FLAKE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REMOTE="${REMOTE:-homeserver}"
+HOST="homeserver"
+
+TOPPLEV=".#nixosConfigurations.${HOST}.config.system.build.toplevel"
+
+sync() {
+    echo "=== rsync --delete -> ${REMOTE}:~/nixos-config ==="
+    rsync -avz --delete \
+        --exclude '.git' --exclude '*.iso' --exclude '*.iso.sha256' \
+        "${FLAKE_DIR}/" "${REMOTE}:~/nixos-config/"
+}
 
 usage() {
     cat <<EOF
-Usage: $0 {eval|dry-run|apply|outputs} [target]
+Usage: $0 {check|build|eval|apply|outputs}
 
 Commands:
-  $0 eval              Evaluate the flake and show its structure
-  $0 dry-run [target]  Evaluation-only dry-run for a nixosConfigurations target (default: homeserver)
-  $0 apply             Run local tests (nix flake check)
-  $0 outputs           List available flake outputs
+  $0 check     nix flake check on the homeserver (evaluate only)
+  $0 build     Build the homeserver toplevel on the homeserver (CI's gate)
+  $0 eval      Show the flake output structure on the homeserver
+  $0 apply     Build, then switch the homeserver to it (one-shot apply)
+  $0 outputs   Alias for eval
 
-Note: Full builds and rebuilds must be run on the home server via SSH:
-  rsync -avz --exclude '.git' "$FLAKE_DIR" homeserver:~/nixos-config/
-  ssh homeserver "cd ~/nixos-config && nixos-rebuild dry-build --flake .#homeserver"
-  ssh homeserver "cd ~/nixos-config && nixos-rebuild switch"
+Every command first rsyncs your working tree to ${REMOTE}:~/nixos-config.
+Override the target with REMOTE=<ssh-host> $0 ...
 EOF
 }
 
-# Evaluate the flake and print its output structure.
+remote_nix() {
+    ssh "${REMOTE}" "cd ~/nixos-config && $*"
+}
+check() {
+    sync
+    echo "=== nix flake check (remote) ==="
+    remote_nix "nix flake check"
+}
+
+build() {
+    sync
+    echo "=== nix build ${HOST} toplevel (remote, same as CI gate) ==="
+    remote_nix "nix build --no-link --print-out-paths '${TOPPLEV}'"
+}
+
 eval_flake() {
-    echo "=== Evaluating flake at $FLAKE_DIR ==="
-    nix flake show "$FLAKE_DIR"
+    sync
+    echo "=== nix flake show (remote) ==="
+    remote_nix "nix flake show"
 }
 
-# Evaluation-only dry-run: resolve the toplevel derivation path, which
-# evaluates the full system configuration without building anything.
-dry_run() {
-    local target="${1:-homeserver}"
-    echo "=== Evaluation-only dry-run: nixosConfigurations.${target} ==="
-    local drv
-    drv="$(nix eval --raw "$FLAKE_DIR#nixosConfigurations.${target}.config.system.build.toplevel.drvPath")"
-    echo "Would build: $drv"
-    echo ""
-    echo "To dry-build remotely:"
-    echo "  rsync -avz --exclude '.git' \"$FLAKE_DIR\" homeserver:~/nixos-config/"
-    echo "  ssh homeserver \"cd ~/nixos-config && nixos-rebuild dry-build --flake .#homeserver\""
-}
-
-# Run local validation tests (flake check). Does not build or apply anything.
-apply_local() {
-    echo "=== Running nix flake check (local, validation only) ==="
-    nix flake check "$FLAKE_DIR"
-    echo "=== Flake check passed ==="
-    echo ""
-    echo "To apply on the home server:"
-    echo "  rsync -avz --exclude '.git' \"$FLAKE_DIR\" homeserver:~/nixos-config/"
-    echo "  ssh homeserver \"cd ~/nixos-config && nixos-rebuild switch\""
-}
-
-# List available flake outputs.
-show_outputs() {
-    echo "=== Available flake outputs ==="
-    nix flake show "$FLAKE_DIR"
+apply() {
+    sync
+    echo "=== nixos-rebuild switch --flake .#${HOST} (remote) ==="
+    remote_nix "sudo nixos-rebuild switch --flake .#${HOST}"
 }
 
 case "${1:-}" in
-    eval)        eval_flake ;;
-    dry-run)     dry_run "${2:-}" ;;
-    apply|build) apply_local ;;
-    outputs)     show_outputs ;;
-    -h|--help)   usage ;;
-    "")          usage ;;
-    *)           usage; exit 1 ;;
+    check)         check ;;
+    build)         build ;;
+    eval|outputs)  eval_flake ;;
+    apply)         apply ;;
+    -h|--help)     usage ;;
+    "")            usage ;;
+    *)             usage; exit 1 ;;
 esac

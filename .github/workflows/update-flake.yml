@@ -2,9 +2,10 @@ name: Update Flake Lock
 
 on:
   schedule:
-    # Daily 02:00 UTC. Machines pull at 03:00 local, so patches land within
-    # roughly 24h of upstream. Running daily is safe because the build gate
-    # below means a broken update fails the workflow instead of shipping.
+    # Daily 02:00 UTC. The machine pulls at 03:00 local, so patches land
+    # within roughly 24h of upstream. Running daily is safe because the
+    # build gate below means a broken update fails the workflow instead of
+    # shipping.
     - cron: "0 2 * * *"
   workflow_dispatch:
     inputs:
@@ -12,7 +13,7 @@ on:
         description: >
           Build and commit even if flake.lock is unchanged. Use this to
           verify the build+commit path works, or to force a rebuild of
-          the machines from the current lock.
+          the machine from the current lock.
         type: boolean
         default: false
 
@@ -54,7 +55,7 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "flake.lock changed; building both hosts before committing"
+            echo "flake.lock changed; building the homeserver before committing"
             {
               echo "### Update available"
               echo
@@ -62,19 +63,18 @@ jobs:
               git diff --stat flake.lock
               echo '```'
               echo
-              echo "Both hosts must build before this is committed."
+              echo "The homeserver must build before this is committed."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      # THE GATE. If a dependency bump breaks either host, this fails and
-      # nothing is committed. Machines therefore never see an untested lock.
-      - name: Build both hosts
+      # THE GATE. If a dependency bump breaks the host, this fails and
+      # nothing is committed. The machine therefore never sees an untested
+      # lock.
+      - name: Build homeserver
         if: steps.changed.outputs.changed == 'true'
         run: |
           nix build --no-link \
             .#nixosConfigurations.homeserver.config.system.build.toplevel
-          nix build --no-link \
-            .#nixosConfigurations.vps.config.system.build.toplevel
 
       - name: Commit and push
         if: steps.changed.outputs.changed == 'true'
@@ -87,12 +87,12 @@ jobs:
           # commit. git commit would then exit non-zero and fail the run,
           # which would be misleading since the build already passed.
           if git diff --cached --quiet; then
-            echo "No lock change to commit (force_build run); builds passed."
+            echo "No lock change to commit (force_build run); build passed."
             {
-              echo "### Builds passed, nothing to commit"
+              echo "### Build passed, nothing to commit"
               echo
               echo "\`force_build\` was set but \`flake.lock\` is unchanged,"
-              echo "so there was no commit. Both hosts built successfully."
+              echo "so there was no commit. The homeserver built successfully."
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
@@ -103,5 +103,5 @@ jobs:
             echo "### Committed"
             echo
             echo "Pushed \`$(git rev-parse --short HEAD)\` to main."
-            echo "Machines pick this up at their next 03:00 run."
+            echo "The homeserver picks this up at its next 03:00 run."
           } >> "$GITHUB_STEP_SUMMARY"
