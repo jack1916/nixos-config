@@ -16,7 +16,6 @@
   imports = [
     ./../../hardware-configuration.nix
     ./../../modules/services/jellyfin.nix
-    ./../../modules/services/media-utils.nix
   ];
 
   nixpkgs.config.allowUnfree = true;
@@ -81,9 +80,42 @@
   #   sudo nordvpn whitelist add port 8096        # LAN access to Jellyfin
   #   sudo nordvpn connect
   #
-  # Deliberately NOT automated at boot: transmission is not tied to the VPN,
-  # so a launch-time connect can silently fail and leave torrents running
-  # over the home IP. Connect by hand and check `nordvpn status` first.
+  # Deliberately NOT automated at boot: if a launch-time connect silently
+  # fails, other traffic would quietly run over the home IP with no warning.
+  # Connect by hand and check `nordvpn status` first.
+  #
+  # MTU: NordVPN brings nordlynx up at 1420, but the real path MTU on this
+  # carrier-NAT link is lower. Measured with `ping -M do`: 1300 passes,
+  # 1372 is dropped. At 1420 the symptom is that TCP connects and DNS works
+  # but every HTTPS request hangs (curl returns 000 after the full timeout)
+  # because the TLS handshake's larger packets are silently dropped. Setting
+  # the interface to 1380 (same value the old WireGuard tunnel used) fixes
+  # it: HTTP 200 in 35ms. This is the same failure mode as AGENTS.md item 2;
+  # do not "fix" it by raising the value.
+  systemd.services.nordvpn-mtu = {
+    description = "Lower nordlynx MTU to 1380 (path MTU is below NordVPN's 1420)";
+    wantedBy = [ "multi-user.target" ];
+    # nordlynx only exists once the tunnel is up, so re-run on changes.
+    after = [ "network-online.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    script = ''
+      # The tunnel is connected by hand, so nordlynx may not exist yet.
+      # Wait up to ~5 min for it, then give up rather than hanging forever.
+      for _ in $(${pkgs.coreutils}/bin/seq 1 150); do
+        if ${pkgs.iproute2}/bin/ip link show nordlynx >/dev/null 2>&1; then
+          ${pkgs.iproute2}/bin/ip link set dev nordlynx mtu 1380
+          echo "nordlynx MTU set to 1380"
+          exit 0
+        fi
+        ${pkgs.coreutils}/bin/sleep 2
+      done
+      echo "nordlynx did not appear; nothing to do"
+    '';
+  };
+
   systemd.services.nordvpnd = {
     description = "NordVPN daemon";
     after = [ "network-online.target" ];

@@ -1,8 +1,22 @@
 # Jellyfin media server.
 #
 # Owns the /mnt/media mount and grants the jellyfin user read-only access
-# to it. The media tree itself (torrents, TV, Movies, Music) and the
-# download/import stack live in media-utils.nix.
+# to it.
+#
+# Adding media: copy files in over the LAN with rsync. There is no
+# download client or *arr stack any more -- they were removed because their
+# indexers are blocked by legal order (HTTP 451), so they could not fetch
+# anything. rsync is the whole workflow:
+#
+#   rsync -av --progress ./Some.Movie.mkv \
+#     homeserver:/mnt/media/torrents/Movies/
+#
+# Layout (pre-existing on the drive, so the config follows the data):
+#   /mnt/media/torrents/Movies    ← Jellyfin "Movies" library root
+#   /mnt/media/torrents/TVShows   ← Jellyfin "Shows" library root
+#
+# Files land owned by jack; jellyfin reads them via the ACL below. Jellyfin
+# scans on demand (Dashboard → Scan All Libraries) or on its own schedule.
 {
   config,
   lib,
@@ -29,13 +43,19 @@
     openFirewall = true;
   };
 
-  # Grant the jellyfin user READ-ONLY access to the media tree.
-  # Jellyfin runs as its own user; it needs to read /mnt/media/TV,
-  # /mnt/media/Movies, etc. Write access is not needed — metadata
-  # and database live in /var/lib/jellyfin — and withholding it means a
-  # compromised server cannot modify or delete the library.
+  # Grant jellyfin read-only access to /mnt/media.
   #
-  # Grant the jellyfin user READ-ONLY access to the media tree.
+  # /mnt/media is drwxr-x--- jack:1000, i.e. other::--- and group::---. That
+  # means NOBODY except jack can traverse into it, regardless of what they
+  # own underneath -- the kernel checks EVERY component of the path. So the
+  # ACL on the mount point itself is what matters.
+  #
+  #   jellyfin  r-x  read-only on purpose: metadata/db live in
+  #                  /var/lib/jellyfin, so it never needs to write here and a
+  #                  compromised server cannot damage the library.
+  #
+  # Sonarr/Radarr/Transmission used to get rwx here. They were removed (see
+  # media-utils.nix), so their entries are gone too.
   #
   # Library roots to add in the Jellyfin setup wizard (they live under
   # torrents/, matching the pre-existing layout on the drive):
@@ -84,6 +104,9 @@
       RemainAfterExit = true;
     };
     script = ''
+      # Recurse over the EXISTING tree only. The default ACLs set by tmpfiles
+      # above make new files inherit these rights, so this does not need to
+      # run again unless the tree already existed without them.
       ${pkgs.acl}/bin/setfacl -R -m u:jellyfin:r-x /mnt/media
     '';
   };
