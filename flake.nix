@@ -35,11 +35,11 @@
     in
     {
       nixosConfigurations = {
-        # Local home server. Runs Plex and AdGuard Home.
+        # Local home server. Runs Jellyfin and AdGuard Home.
         #
         # This used to be one of two hosts: a public VPS acted as a
-        # WireGuard endpoint + Caddy TLS reverse proxy so Plex was
-        # reachable from the internet without exposing the home IP. The VPS
+        # WireGuard endpoint + Caddy TLS reverse proxy so the media server
+        # was reachable from the internet without exposing the home IP. The VPS
         # and the WireGuard client that dialled it have been removed
         # entirely (see AGENTS.md), so this is now the only host. Remote
         # access is to be re-done with Tailscale.

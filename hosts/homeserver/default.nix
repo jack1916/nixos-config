@@ -1,8 +1,9 @@
 # Homeserver host entry point.
 #
-# The existing Plex setup stays in modules/services/plex.nix. This is now
+# Media runs on Jellyfin (modules/services/jellyfin.nix) and the
+# download/import stack in modules/services/media-utils.nix. This is now
 # the ONLY host in the flake. The public VPS gateway and the WireGuard
-# tunnel that reached it have both been removed; remote access will be
+# tunnel that reached it have both been removed; remote access is to be
 # re-done with Tailscale (already enabled below). See AGENTS.md for why.
 {
   config,
@@ -14,7 +15,8 @@
 {
   imports = [
     ./../../hardware-configuration.nix
-    ./../../modules/services/plex.nix
+    ./../../modules/services/jellyfin.nix
+    ./../../modules/services/media-utils.nix
   ];
 
   nixpkgs.config.allowUnfree = true;
@@ -64,7 +66,42 @@
     htop
     gnumake
     powertop
+    nordvpn
   ];
+
+  # NordVPN is used manually to keep P2P traffic off the home IP. The CLI
+  # talks to a background daemon (nordvpnd), so that needs to be running for
+  # `nordvpn login/connect/status` to work.
+  #
+  # One-time setup after the first rebuild (not declarative - it binds to
+  # your NordVPN account):
+  #   sudo nordvpn login
+  #   sudo nordvpn settings killswitch disabled   # killswitch would cut LAN too
+  #   sudo nordvpn whitelist add subnet 192.168.0.0/24
+  #   sudo nordvpn whitelist add port 8096        # LAN access to Jellyfin
+  #   sudo nordvpn connect
+  #
+  # Deliberately NOT automated at boot: transmission is not tied to the VPN,
+  # so a launch-time connect can silently fail and leave torrents running
+  # over the home IP. Connect by hand and check `nordvpn status` first.
+  systemd.services.nordvpnd = {
+    description = "NordVPN daemon";
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "simple";
+      ExecStart = "${pkgs.nordvpn}/bin/nordvpnd";
+      Restart = "on-failure";
+      RestartSec = 5;
+      # nordvpnd manages network interfaces and firewall rules.
+      AmbientCapabilities = [
+        "CAP_NET_ADMIN"
+        "CAP_NET_RAW"
+      ];
+      NoNewPrivileges = false;
+    };
+  };
 
   services.openssh = {
     enable = true;
@@ -72,6 +109,11 @@
   };
 
   networking.firewall.trustedInterfaces = [ "tailscale0" ];
+
+  # NordVPN pushes a full-tunnel route and installs its own nftables rules.
+  # Strict reverse-path filtering drops the replies that come back over the
+  # tunnel interface, which presents as "connects, then hangs".
+  networking.firewall.checkReversePath = "loose";
 
   system.stateVersion = "25.11";
 
@@ -102,8 +144,8 @@
     randomizedDelaySec = "15m";
     # Kernel, glibc and systemd patches need a reboot to take effect.
     # A reboot only happens when the kernel/initrd actually changed, not
-    # every night. Plex drops briefly inside the window; that is the trade
-    # for actually running patched code.
+    # every night. Jellyfin drops briefly inside the window; that is the
+    # trade for actually running patched code.
     allowReboot = true;
     rebootWindow = {
       lower = "03:00";

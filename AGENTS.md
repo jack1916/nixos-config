@@ -10,11 +10,11 @@ One flake managing **one host**, running **nixos-unstable**:
 
 | Host | Role | Where |
 |---|---|---|
-| `homeserver` | Home server. Runs Plex and AdGuard Home. Behind carrier NAT. | `hosts/homeserver/` |
+| `homeserver` | Home server: Jellyfin, arr/torrent stack, AdGuard. Behind carrier NAT. | `hosts/homeserver/` |
 
 There used to be a second host, a public VPS that acted as a WireGuard
-endpoint plus Caddy TLS reverse proxy so Plex could be reached from the
-internet. **It has been removed entirely** (see "The VPS is gone" below),
+endpoint plus Caddy TLS reverse proxy so the media server could be reached
+from the internet. **It has been removed entirely** (see "The VPS is gone" below),
 along with the tunnel, the sops/WireGuard secrets, and every documented
 install method. Do not reintroduce any of it without being asked.
 
@@ -337,9 +337,9 @@ configuration remains anywhere in this repo:
 - the `sops-nix` flake input and module wiring, and the `vps`
   `nixosConfigurations` output
 
-**Consequence: Plex remote access no longer works.** The homeserver is
-behind carrier NAT and has no inbound ports, so Plex is reachable only on
-the LAN. The intended replacement is **Tailscale**, which the homeserver
+**Consequence: the media server has no remote access.** The homeserver is
+behind carrier NAT and has no inbound ports, so Jellyfin is reachable only
+on the LAN. The intended replacement is **Tailscale**, which the homeserver
 already runs (`services.tailscale.enable = true` in
 `hosts/homeserver/default.nix`). Tailscale is to be set up later; do not
 reintroduce WireGuard or a public reverse proxy to solve this. Ask before
@@ -351,7 +351,8 @@ adding anything.
 |---|---|
 | `flake.nix` | One host via `mkSystem`; nixpkgs = nixos-unstable |
 | `hosts/homeserver/` | `default.nix` only |
-| `modules/services/plex.nix` | Plex, GPU transcoding, read-only media ACLs |
+| `modules/services/jellyfin.nix` | Jellyfin, `/mnt/media` mount, read-only media ACLs |
+| `modules/services/media-utils.nix` | transmission/sonarr/radarr/prowlarr and the media dir layout |
 | `scripts/update-check.sh` | current vs booted generation, next timer, reboot pending |
 | `dev-mode.sh` | remote build helper (`check`/`build`/`eval`/`apply`); delegates to the homeserver |
 | `hardware-configuration.nix` | Homeserver root/ESP by UUID |
